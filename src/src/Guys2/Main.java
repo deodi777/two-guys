@@ -7,13 +7,16 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
-public class inizialisierung extends Application {
-
-    public static final int WIDTH  = 1200;
-    public static final int HEIGHT = 700;
+public class Main extends Application {
+    public static void main(String[] args) {
+        Application.launch(Main.class, args);
+    }
 
     @Override
-    public void start(Stage primaryStage) {
+    public void start(Stage stage) throws Exception {
+        int WIDTH  = inizialisierung.WIDTH;
+        int HEIGHT = inizialisierung.HEIGHT;
+
         Canvas canvas = new Canvas(WIDTH, HEIGHT);
         StackPane root = new StackPane(canvas);
 
@@ -25,10 +28,10 @@ public class inizialisierung extends Application {
         scene.addEventFilter(KeyEvent.KEY_PRESSED,  game::onKeyPressed);
         scene.addEventFilter(KeyEvent.KEY_RELEASED, game::onKeyReleased);
 
-        primaryStage.setTitle("TWO GUYS — Plattform Kampf");
-        primaryStage.setScene(scene);
-        primaryStage.setResizable(false);
-        primaryStage.show();
+        stage.setTitle("TWO GUYS — Plattform Kampf");
+        stage.setScene(scene);
+        stage.setResizable(false);
+        stage.show();
 
         canvas.requestFocus();
         game.start();
