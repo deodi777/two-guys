@@ -83,7 +83,6 @@ public class attacke {
 
     public boolean checkHit(character target) {
         if (!active || hasHit || current == null) return false;
-        // Active hit frames: middle section of animation
         if (timer > current.duration - 3 || timer < 2) return false;
 
         double[] ab = getHitbox();
@@ -92,7 +91,10 @@ public class attacke {
             hasHit = true;
             float dmg = damage();
             target.damage += dmg;
-            target.applyKnockback(owner.x + owner.width / 2.0, dmg);
+
+            // facingRight direkt aus dem character lesen, nicht aus velX
+            target.applyKnockback(current, owner.facingRight, dmg);
+
             owner.velX *= 0.4;
 
             // ── Effekte: Funken, Ring, Schadens-Pop, Screen-Flash ───────────

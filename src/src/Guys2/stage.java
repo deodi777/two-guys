@@ -73,21 +73,19 @@ public class stage {
         for (double[] p : solidPlatforms) {
             if (overlaps(c, p)) {
                 double prevBottom = c.y + c.height - c.velY;
-                if (prevBottom <= p[1] + 10 && c.velY >= 0 && !c.knockedBack) {
+                if (prevBottom <= p[1] + 14 && c.velY >= 0) {
                     c.y = p[1] - c.height;
                     c.velY = 0;
                     c.onGround = true;
-                } else if (prevBottom <= p[1] + 4 && c.velY >= 0 && c.velY < 6) {
-                    c.y = p[1] - c.height;
-                    c.velY = 0;
-                    c.onGround = true;
+                    // knockback NICHT abbrechen beim Landen — er soll weiterrutschen
                 }
             }
         }
         for (double[] p : floatingPlatforms) {
             if (overlaps(c, p)) {
                 double prevBottom = c.y + c.height - c.velY;
-                if (prevBottom <= p[1] + 6 && c.velY >= 0) {
+                boolean strongKnockback = c.knockedBack && Math.abs(c.velX) > 6;
+                if (prevBottom <= p[1] + 6 && c.velY >= 0 && !strongKnockback) {
                     c.y = p[1] - c.height;
                     c.velY = 0;
                     c.onGround = true;
