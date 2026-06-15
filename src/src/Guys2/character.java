@@ -47,16 +47,34 @@ public class character {
     private boolean facingRight = true;
     private double  walkPhase   = 0;
 
+    // ─── Squash & Stretch / Landing-Animation ────────────────────────────────
+    private double squashX = 1.0, squashY = 1.0;
+    private boolean wasOnGround = true;
+    private double  landSquat   = 0; // 1 -> 0, klingt ab
+    private double  jumpStretch = 0; // 1 -> 0, klingt ab
+    private double  prevVelY    = 0;
+
+    // ─── Hit-Reaction ─────────────────────────────────────────────────────────
+    private double hitFlash = 0; // 1 -> 0 weißer Aufblitz beim Treffer
+    private double prevDamage = 0;
+
     public character(double sx, double sy, Color bodyColor, Color glowColor,
                      String name, int playerIndex) {
         this.x = sx; this.y = sy;
         this.bodyColor = bodyColor; this.glowColor = glowColor;
         this.name = name; this.playerIndex = playerIndex;
+        this.prevDamage = damage;
     }
 
     // ─── Update ─────────────────────────────────────────────────────────────
 
     public void update(boolean left, boolean right, boolean jump, stage gameStage) {
+        // Treffer-Erkennung (Schaden seit letztem Frame gestiegen?)
+        if (damage > prevDamage) {
+            hitFlash = 1.0;
+        }
+        prevDamage = damage;
+
         // Knockback decay
         if (knockedBack) { if (--knockbackTimer <= 0) knockedBack = false; }
 
@@ -67,9 +85,11 @@ public class character {
         if (velX >  0.1) facingRight = true;
         if (velX < -0.1) facingRight = false;
 
-        if (jump && onGround) { velY = JUMP_FORCE; onGround = false; }
+        boolean jumpStarted = false;
+        if (jump && onGround) { velY = JUMP_FORCE; onGround = false; jumpStarted = true; }
 
         // Gravity
+        prevVelY = velY;
         velY += GRAVITY;
         if (knockedBack) velX *= 0.90;
 
@@ -87,7 +107,41 @@ public class character {
             walkPhase = 0;
         }
 
+        boolean groundBefore = onGround;
         gameStage.resolveCollision(this);
+
+        // ── Landing detection: war in der Luft, ist jetzt am Boden ───────────
+        if (!groundBefore && onGround) {
+            double impact = Math.min(1.0, Math.abs(prevVelY) / 16.0);
+            landSquat = Math.max(0.25, impact); // Stauchung proportional zum Aufprall
+            effekt.spawnDust(x + width / 2.0, y + height, impact > 0.45);
+        }
+
+        // ── Sprung-Streckung beim Abspringen ─────────────────────────────────
+        if (jumpStarted) {
+            jumpStretch = 1.0;
+            effekt.spawnDust(x + width / 2.0, y + height, false);
+        }
+
+        // ── Squash/Stretch sanft ausklingen lassen ───────────────────────────
+        landSquat   *= 0.82; if (landSquat   < 0.01) landSquat   = 0;
+        jumpStretch *= 0.85; if (jumpStretch < 0.01) jumpStretch = 0;
+        hitFlash    *= 0.80; if (hitFlash    < 0.02) hitFlash    = 0;
+
+        // Ziel-Squash berechnen: Landung quetscht breit/flach, Sprung streckt schmal/hoch
+        double targetSqX = 1.0 + landSquat * 0.22 - jumpStretch * 0.12;
+        double targetSqY = 1.0 - landSquat * 0.28 + jumpStretch * 0.20;
+        // sanftes Einschwingen
+        squashX += (targetSqX - squashX) * 0.35;
+        squashY += (targetSqY - squashY) * 0.35;
+
+        // ── Knockback-Trail-Partikel ─────────────────────────────────────────
+        if (knockedBack && Math.abs(velX) > 1.5) {
+            effekt.spawnTrail(x + width / 2.0 - Math.signum(velX) * 10, y + height / 2.0,
+                    Color.color(1, 0.25, 0.25, 0.5));
+        }
+
+        wasOnGround = onGround;
     }
 
     // ─── Hitbox / Attackbox ──────────────────────────────────────────────────
@@ -120,6 +174,9 @@ public class character {
         velY = -4 - dmg / 30.0;
         knockedBack    = true;
         knockbackTimer = 30;
+
+        // Bei kräftigem Treffer leicht zusammendrücken (Reaktion)
+        landSquat = Math.max(landSquat, 0.4);
     }
 
     // ─── Draw ───────────────────────────────────────────────────────────────
@@ -127,9 +184,11 @@ public class character {
     public void draw(GraphicsContext gc) {
         int ix = (int) x, iy = (int) y;
 
-        // Shadow
+        // Shadow — Größe reagiert leicht auf Sprunghöhe/Squash
+        double shadowScale = 1.0 - Math.min(0.35, Math.abs(velY) * 0.012);
+        double shW = (width - 8) * shadowScale;
         gc.setFill(Color.color(0,0,0,0.28));
-        gc.fillOval(ix + 4, iy + height - 5, width - 8, 10);
+        gc.fillOval(ix + 4 + (width-8-shW)/2.0, iy + height - 5, shW, 10);
 
         // Knockback glow
         if (knockedBack) {
@@ -139,6 +198,15 @@ public class character {
             gc.setFill(rg);
             gc.fillOval(ix - 18, iy - 10, width + 36, height + 20);
         }
+
+        // ── Squash & Stretch Transform um den Charakter-Mittelpunkt-unten ────
+        double pivotX = ix + width / 2.0;
+        double pivotY = iy + height; // Boden-Bezugspunkt
+
+        gc.save();
+        gc.translate(pivotX, pivotY);
+        gc.scale(squashX, squashY);
+        gc.translate(-pivotX, -pivotY);
 
         drawBody(gc, ix, iy);
 
@@ -152,13 +220,22 @@ public class character {
                     default -> Color.color(1,0.47,0,0.72);
                 };
                 double prog = (double) attackTimer / attackDuration;
-                gc.setFill(Color.color(ac.getRed(),ac.getGreen(),ac.getBlue(), ac.getOpacity()*prog));
+                double pulse = 0.85 + 0.15 * Math.sin(attackTimer * 1.4);
+                gc.setFill(Color.color(ac.getRed(),ac.getGreen(),ac.getBlue(), ac.getOpacity()*prog*pulse));
                 gc.fillRoundRect(ab[0], ab[1], ab[2], ab[3], 12, 12);
                 gc.setStroke(Color.color(1,1,1, 0.55*prog));
                 gc.setLineWidth(1.8);
                 gc.strokeRoundRect(ab[0], ab[1], ab[2], ab[3], 12, 12);
             }
         }
+
+        // ── Treffer-Weißblitz über dem Körper ────────────────────────────────
+        if (hitFlash > 0.01) {
+            gc.setFill(Color.color(1,1,1, hitFlash * 0.55));
+            gc.fillRoundRect(ix - 4, iy - 6, width + 8, height + 6, 16, 16);
+        }
+
+        gc.restore();
 
         drawHUD(gc, ix, iy);
     }
@@ -176,24 +253,37 @@ public class character {
         double legOffset1 = 0;
         double legOffset2 = 0;
         double bodyBob    = 0;
+        double leanX      = 0;
+        double squishLeg  = 0;
 
         if (onGround && Math.abs(velX) > 0.5) {
             legOffset1 = Math.sin(walkPhase) * 7;
             legOffset2 = Math.sin(walkPhase + Math.PI) * 7;
             bodyBob    = Math.abs(Math.sin(walkPhase)) * 2;
+            // Leichte Lauf-Neigung in Bewegungsrichtung
+            leanX = Math.signum(velX) * Math.min(3, Math.abs(velX) * 0.6);
         } else if (!onGround) {
-            // Sprung-Pose
-            legOffset1 = -3;
-            legOffset2 = 4;
+            // Sprung-Pose: Beine ziehen sich an beim Steigen, strecken sich beim Fallen
+            if (velY < -1) { legOffset1 = -4; legOffset2 = 5; squishLeg = -2; }
+            else if (velY > 4) { legOffset1 = 3; legOffset2 = -3; squishLeg = 1; }
+            else { legOffset1 = -3; legOffset2 = 4; }
         }
 
         // Körper hebt sich leicht beim Laufen
         int bodyY = iy - (int)bodyBob;
 
+        gc.save();
+        // Leichte Neigung in Laufrichtung (um Kopf-Pivot)
+        if (leanX != 0) {
+            gc.translate(ix + width/2.0, bodyY + 10);
+            gc.rotate(leanX * 1.5);
+            gc.translate(-(ix + width/2.0), -(bodyY + 10));
+        }
+
         // ── Cute stubby legs (Animated) ─────────────────────────────────────
         gc.setFill(dark);
-        gc.fillRoundRect(ix + 9 + legOffset1,  iy + 44, 11, 18, 8, 8);
-        gc.fillRoundRect(ix + 26 + legOffset2, iy + 44, 11, 18, 8, 8);
+        gc.fillRoundRect(ix + 9 + legOffset1,  iy + 44 + squishLeg, 11, 18 - squishLeg, 8, 8);
+        gc.fillRoundRect(ix + 26 + legOffset2, iy + 44 + squishLeg, 11, 18 - squishLeg, 8, 8);
         // Tiny shoes
         Color shoeColor = base.deriveColor(0, 0.6, 0.45, 1);
         gc.setFill(shoeColor);
@@ -222,8 +312,11 @@ public class character {
             gc.setFill(light);
             gc.fillOval(facingRight ? ix + width + 10 : ix - 18, bodyY + 23, 13, 13);
         } else {
-            gc.fillRoundRect(ix - 6,         bodyY + 25, 12, 11, 8, 8);
-            gc.fillRoundRect(ix + width - 6, bodyY + 25, 12, 11, 8, 8);
+            // Leichtes Armschwingen passend zur Laufanimation
+            double armSwing1 = onGround && Math.abs(velX) > 0.5 ? Math.sin(walkPhase + Math.PI) * 3 : 0;
+            double armSwing2 = onGround && Math.abs(velX) > 0.5 ? Math.sin(walkPhase) * 3 : 0;
+            gc.fillRoundRect(ix - 6,         bodyY + 25 + armSwing1, 12, 11, 8, 8);
+            gc.fillRoundRect(ix + width - 6, bodyY + 25 + armSwing2, 12, 11, 8, 8);
         }
 
         // ── Big round cute head ─────────────────────────────────────────────
@@ -245,35 +338,49 @@ public class character {
 
         // ── Big sparkly eyes ────────────────────────────────────────────────
         double eyeOffX = facingRight ? 0 : 1;
+
+        // Blinzeln: alle ~140 Frames kurzes Augenzwinkern
+        boolean blink = (walkBlinkPhase() < 6);
+
         // Eye whites
         gc.setFill(Color.WHITE);
-        gc.fillOval(ix + 9  + eyeOffX, bodyY + 5,  13, 14);
-        gc.fillOval(ix + 24 + eyeOffX, bodyY + 5,  13, 14);
-        // Pupils (dark)
-        gc.setFill(Color.color(0.08, 0.06, 0.14));
-        gc.fillOval(ix + 11 + eyeOffX, bodyY + 7,  9, 10);
-        gc.fillOval(ix + 26 + eyeOffX, bodyY + 7,  9, 10);
-        // Colored iris
-        gc.setFill(bodyColor.deriveColor(0, 0.8, 1.1, 0.85));
-        gc.fillOval(ix + 12 + eyeOffX, bodyY + 8,  7, 7);
-        gc.fillOval(ix + 27 + eyeOffX, bodyY + 8,  7, 7);
-        // Big white sparkle highlight
-        gc.setFill(Color.WHITE);
-        gc.fillOval(ix + 13 + eyeOffX, bodyY + 8,  4, 4);
-        gc.fillOval(ix + 28 + eyeOffX, bodyY + 8,  4, 4);
-        // Small extra sparkle
-        gc.fillOval(ix + 17 + eyeOffX, bodyY + 13, 2, 2);
-        gc.fillOval(ix + 32 + eyeOffX, bodyY + 13, 2, 2);
+        double eyeH = blink ? 3 : 14;
+        double eyeYAdj = blink ? bodyY + 5 + (14-3)/2.0 : bodyY + 5;
+        gc.fillOval(ix + 9  + eyeOffX, eyeYAdj,  13, eyeH);
+        gc.fillOval(ix + 24 + eyeOffX, eyeYAdj,  13, eyeH);
+
+        if (!blink) {
+            // Pupils (dark)
+            gc.setFill(Color.color(0.08, 0.06, 0.14));
+            gc.fillOval(ix + 11 + eyeOffX, bodyY + 7,  9, 10);
+            gc.fillOval(ix + 26 + eyeOffX, bodyY + 7,  9, 10);
+            // Colored iris
+            gc.setFill(bodyColor.deriveColor(0, 0.8, 1.1, 0.85));
+            gc.fillOval(ix + 12 + eyeOffX, bodyY + 8,  7, 7);
+            gc.fillOval(ix + 27 + eyeOffX, bodyY + 8,  7, 7);
+            // Big white sparkle highlight
+            gc.setFill(Color.WHITE);
+            gc.fillOval(ix + 13 + eyeOffX, bodyY + 8,  4, 4);
+            gc.fillOval(ix + 28 + eyeOffX, bodyY + 8,  4, 4);
+            // Small extra sparkle
+            gc.fillOval(ix + 17 + eyeOffX, bodyY + 13, 2, 2);
+            gc.fillOval(ix + 32 + eyeOffX, bodyY + 13, 2, 2);
+        }
 
         // ── Cute blush cheeks ────────────────────────────────────────────────
         gc.setFill(Color.color(1, 0.55, 0.65, 0.35));
         gc.fillOval(ix + 3,  bodyY + 16, 10, 6);
         gc.fillOval(ix + 33, bodyY + 16, 10, 6);
 
-        // ── Small smile ─────────────────────────────────────────────────────
+        // ── Small smile / Grimasse bei Treffer ──────────────────────────────
         gc.setStroke(Color.color(0.3, 0.1, 0.1, 0.55));
         gc.setLineWidth(1.8);
-        gc.strokeArc(ix + 14, bodyY + 16, 18, 8, 200, 140, javafx.scene.shape.ArcType.OPEN);
+        if (knockedBack) {
+            // schmerzverzogener "O"-Mund
+            gc.strokeOval(ix + 19, bodyY + 16, 8, 7);
+        } else {
+            gc.strokeArc(ix + 14, bodyY + 16, 18, 8, 200, 140, javafx.scene.shape.ArcType.OPEN);
+        }
 
         // ── Knockback red tint ───────────────────────────────────────────────
         if (knockedBack) {
@@ -286,6 +393,15 @@ public class character {
         gc.setLineWidth(1.0);
         gc.strokeRoundRect(ix + 3, bodyY + 22, width - 6, 28, 14, 14);
         gc.strokeOval(ix + 2, bodyY - 2, width - 4, 32);
+
+        gc.restore();
+    }
+
+    // Einfache deterministische "Zufalls"-Blinzelphase basierend auf Position+Zeit
+    private long blinkSeed = (long)(Math.random() * 200);
+    private double walkBlinkPhase() {
+        long t = (System.nanoTime() / 16_000_000L + blinkSeed) % 200;
+        return t;
     }
 
     private void drawHUD(GraphicsContext gc, int ix, int iy) {

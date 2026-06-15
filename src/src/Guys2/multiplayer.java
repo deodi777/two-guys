@@ -82,6 +82,7 @@ public class multiplayer {
         if (screen != Screen.PLAYING) return;
 
         gameStage.update();
+        effekt.update();
 
         // P1 input
         boolean p1l = keys.contains(KeyCode.A),
@@ -110,8 +111,8 @@ public class multiplayer {
         a1.update(); a2.update();
 
         // Hit checks
-        if (a1.checkHit(p2)) shakeP2 = 14;
-        if (a2.checkHit(p1)) shakeP1 = 14;
+        if (a1.checkHit(p2)) shakeP2 = (a1.damage() >= 16) ? 22 : 14;
+        if (a2.checkHit(p1)) shakeP1 = (a2.damage() >= 16) ? 22 : 14;
 
         p1.update(p1l, p1r, p1j, gameStage);
         p2.update(p2l, p2r, p2j, gameStage);
@@ -123,8 +124,8 @@ public class multiplayer {
         if (shakeP1 > 0) shakeP1--;
         if (shakeP2 > 0) shakeP2--;
 
-        if (p1.fallCount >= MAX_FALLS) { winner = p2.name; screen = Screen.GAME_OVER; menuSel = 0; }
-        else if (p2.fallCount >= MAX_FALLS) { winner = p1.name; screen = Screen.GAME_OVER; menuSel = 0; }
+        if (p1.fallCount >= MAX_FALLS) { winner = p2.name; screen = Screen.GAME_OVER; menuSel = 0; effekt.flash(Color.color(1,1,1,0.6), 20); }
+        else if (p2.fallCount >= MAX_FALLS) { winner = p1.name; screen = Screen.GAME_OVER; menuSel = 0; effekt.flash(Color.color(1,1,1,0.6), 20); }
     }
 
     private void checkFall(character c) {
@@ -135,6 +136,7 @@ public class multiplayer {
             c.y = stage.GROUND_Y - c.height - 80;
             c.velX = 0; c.velY = -4;
             c.knockedBack = false;
+            effekt.flash(Color.color(1, 0.15, 0.15, 0.35), 12);
             if (c.playerIndex == 1) shakeP1 = 28;
             else shakeP2 = 28;
         }
@@ -156,9 +158,24 @@ public class multiplayer {
     // PLAYING
     // ═══════════════════════════════════════════════════════════════════════
     private void drawPlaying() {
+        int globalShake = Math.max(shakeP1, shakeP2);
+        boolean bigShake = globalShake > 16; // nur bei kräftigen Treffern/KOs
+
+        gc.save();
+        if (bigShake) {
+            double sx = (Math.random() * 2 - 1) * Math.min(6, globalShake * 0.25);
+            double sy = (Math.random() * 2 - 1) * Math.min(4, globalShake * 0.18);
+            gc.translate(sx, sy);
+        }
+
         gameStage.draw(gc);
         a1.draw(gc); a2.draw(gc);
         p1.draw(gc); p2.draw(gc);
+        effekt.draw(gc);
+
+        gc.restore();
+
+        effekt.drawFlash(gc, W, H);
         drawHUD();
     }
 
@@ -578,6 +595,7 @@ public class multiplayer {
 
     private void startGame() {
         gameStage = new stage();
+        effekt.clear();
         p1 = new character(300, stage.GROUND_Y-64,
                 BODY_COLORS[p1Sel], GLOW_COLORS[p1Sel], CHARS[p1Sel][0], 1);
         p2 = new character(800, stage.GROUND_Y-64,

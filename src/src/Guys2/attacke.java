@@ -58,6 +58,11 @@ public class attacke {
         active  = true;
         hasHit  = false;
         owner.velX *= 0.35;
+
+        // Kleiner Anti-Gravity-"Pop" bei Up-Air für mehr Wumms
+        if (current == Type.UP_AIR && owner.onGround) {
+            owner.velY = Math.min(owner.velY, -2.5);
+        }
         return true;
     }
 
@@ -89,6 +94,12 @@ public class attacke {
             target.damage += dmg;
             target.applyKnockback(owner.x + owner.width / 2.0, dmg);
             owner.velX *= 0.4;
+
+            // ── Effekte: Funken, Ring, Schadens-Pop, Screen-Flash ───────────
+            double hitCx = ab[0] + ab[2] / 2.0;
+            double hitCy = ab[1] + ab[3] / 2.0;
+            effekt.spawnHit(hitCx, hitCy, current.color, dmg);
+
             return true;
         }
         return false;
@@ -114,17 +125,48 @@ public class attacke {
         if (hb[2] == 0) return;
 
         double prog = (double) timer / current.duration;
+
+        // ── Windup-Phase (Anticipation): kurz vor dem aktiven Treffer-Fenster ─
+        boolean windup = timer > current.duration - 3;
+        boolean recovery = timer < 2;
+
         Color c = current.color;
 
-        gc.setFill(Color.color(c.getRed(),c.getGreen(),c.getBlue(), 0.22 * prog));
+        if (windup) {
+            // Leichter, schmaler Vorglühschein während der Anlauf-Frames
+            double wProg = (timer - (current.duration - 3)) / 3.0; // 1 -> 0
+            gc.setFill(Color.color(c.getRed(), c.getGreen(), c.getBlue(), 0.18 * (1 - wProg) + 0.08));
+            gc.fillRoundRect(hb[0]-3, hb[1]-3, hb[2]+6, hb[3]+6, 12, 12);
+            return; // Hitbox-Körper erst bei aktiven Frames zeigen
+        }
+
+        if (recovery) {
+            // Ausklingender Nachleucht-Effekt
+            gc.setFill(Color.color(c.getRed(), c.getGreen(), c.getBlue(), 0.15 * prog));
+            gc.fillRoundRect(hb[0]-4, hb[1]-4, hb[2]+8, hb[3]+8, 12, 12);
+            return;
+        }
+
+        // Pulsierender Glow während aktiver Treffer-Frames
+        double pulse = 0.85 + 0.15 * Math.sin(timer * 1.4);
+
+        gc.setFill(Color.color(c.getRed(),c.getGreen(),c.getBlue(), 0.22 * prog * pulse));
         gc.fillRoundRect(hb[0]-6, hb[1]-6, hb[2]+12, hb[3]+12, 16, 16);
 
-        gc.setFill(Color.color(c.getRed(),c.getGreen(),c.getBlue(), 0.6 * prog));
+        gc.setFill(Color.color(c.getRed(),c.getGreen(),c.getBlue(), 0.6 * prog * pulse));
         gc.fillRoundRect(hb[0], hb[1], hb[2], hb[3], 10, 10);
 
         gc.setStroke(Color.color(1,1,1, 0.75 * prog));
         gc.setLineWidth(1.8);
         gc.strokeRoundRect(hb[0], hb[1], hb[2], hb[3], 10, 10);
+
+        // Bewegungs-"Speed Lines" in Richtung der Hitbox
+        gc.setStroke(Color.color(1,1,1, 0.35 * prog));
+        gc.setLineWidth(1.2);
+        for (int i = 0; i < 3; i++) {
+            double off = i * (hb[3] / 3.0) + hb[3] / 6.0;
+            gc.strokeLine(hb[0] - 6, hb[1] + off, hb[0] + hb[2] + 6, hb[1] + off);
+        }
 
         gc.setFill(Color.color(1,1,1, 0.85 * prog));
         gc.setFont(javafx.scene.text.Font.font("Consolas", 11));
